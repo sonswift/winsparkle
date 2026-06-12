@@ -27,6 +27,7 @@
 #define _download_h_
 
 #include <string>
+#include <stdexcept>
 
 namespace winsparkle
 {
@@ -78,6 +79,27 @@ enum DownloadFlag
 {
     /// Instruct proxies to pass the request upstream
     Download_BypassProxies = 1
+};
+
+/**
+    Exception thrown by DownloadFile() with transport-level diagnostics.
+ */
+class DownloadException : public std::runtime_error
+{
+public:
+    DownloadException(const std::string& message,
+                      const std::string& url,
+                      unsigned long win32Error = 0,
+                      int httpStatus = 0);
+
+    const std::string& GetURL() const { return m_url; }
+    unsigned long GetWin32Error() const { return m_win32Error; }
+    int GetHttpStatus() const { return m_httpStatus; }
+
+private:
+    std::string m_url;
+    unsigned long m_win32Error;
+    int m_httpStatus;
 };
 
 /**

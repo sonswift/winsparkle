@@ -580,6 +580,110 @@ typedef int(__cdecl* win_sparkle_user_run_installer_callback_t)(const wchar_t *)
 */
 WIN_SPARKLE_API void __cdecl win_sparkle_set_user_run_installer_callback(win_sparkle_user_run_installer_callback_t callback);
 
+/**
+    Update metadata passed to host UI callbacks.
+
+    All strings are owned by WinSparkle and are only valid for the duration of
+    the callback invocation.
+ */
+typedef struct win_sparkle_update_info
+{
+    int struct_size;
+    const char *version;
+    const char *short_version;
+    const char *title;
+    const char *description;
+    const char *release_notes_url;
+    const char *download_url;
+    const char *web_browser_url;
+    const char *installer_arguments;
+    int critical_update;
+} win_sparkle_update_info;
+
+/// Callback type for host-rendered update available UI.
+typedef void(__cdecl *win_sparkle_host_update_available_callback_t)(const win_sparkle_update_info *);
+
+/// Callback type for host-rendered no-update UI.
+typedef void(__cdecl *win_sparkle_host_no_update_callback_t)();
+
+/// Callback type for host-rendered download progress UI.
+typedef void(__cdecl *win_sparkle_host_download_progress_callback_t)(unsigned long long downloaded, unsigned long long total);
+
+/// Callback type for host-rendered update downloaded UI.
+typedef void(__cdecl *win_sparkle_host_update_downloaded_callback_t)(const wchar_t *update_file);
+
+/// Callback type for host-rendered update error UI.
+typedef void(__cdecl *win_sparkle_host_update_error_callback_t)(int error_code);
+
+/**
+    Detailed error metadata passed to host UI callbacks.
+
+    error_code uses the same values as win_sparkle_host_update_error_callback_t:
+    0 = generic error, 1 = bad update signature.
+
+    stage is a stable ASCII identifier such as check_appcast, parse_appcast,
+    download_update, save_update_file, verify_signature, or install_update.
+
+    message is intended for diagnostics/logging. Hosts may choose to show a
+    friendlier user-facing message.
+
+    win32_error is a GetLastError()/WinInet error code when available.
+    http_status is an HTTP response status when available.
+
+    All strings are owned by WinSparkle and are only valid for the duration of
+    the callback invocation.
+ */
+typedef struct win_sparkle_update_error_info
+{
+    int struct_size;
+    int error_code;
+    const char *stage;
+    const char *message;
+    const char *url;
+    unsigned long win32_error;
+    int http_status;
+} win_sparkle_update_error_info;
+
+/// Callback type for host-rendered detailed update errors.
+typedef void(__cdecl *win_sparkle_host_update_error_details_callback_t)(const win_sparkle_update_error_info *);
+
+/**
+    Set callback used when win_sparkle_check_update_with_host_ui() finds an update.
+
+    When this callback is set, WinSparkle acts as update engine only: it checks
+    the appcast and passes update metadata to the host application instead of
+    showing its built-in update dialog.
+ */
+WIN_SPARKLE_API void __cdecl win_sparkle_set_host_update_available_callback(win_sparkle_host_update_available_callback_t callback);
+
+/**
+    Set callback used when host UI checks do not find an update.
+ */
+WIN_SPARKLE_API void __cdecl win_sparkle_set_host_no_update_callback(win_sparkle_host_no_update_callback_t callback);
+
+/**
+    Set callback used to report download progress for host UI update sessions.
+ */
+WIN_SPARKLE_API void __cdecl win_sparkle_set_host_download_progress_callback(win_sparkle_host_download_progress_callback_t callback);
+
+/**
+    Set callback used when the update payload has been downloaded and verified.
+ */
+WIN_SPARKLE_API void __cdecl win_sparkle_set_host_update_downloaded_callback(win_sparkle_host_update_downloaded_callback_t callback);
+
+/**
+    Set callback used when host UI checks or downloads fail.
+ */
+WIN_SPARKLE_API void __cdecl win_sparkle_set_host_update_error_callback(win_sparkle_host_update_error_callback_t callback);
+
+/**
+    Set callback used when host UI checks or downloads fail with diagnostics.
+
+    When this callback is set, it is preferred over
+    win_sparkle_set_host_update_error_callback().
+ */
+WIN_SPARKLE_API void __cdecl win_sparkle_set_host_update_error_details_callback(win_sparkle_host_update_error_details_callback_t callback);
+
 //@}
 
 
@@ -653,6 +757,48 @@ WIN_SPARKLE_API void __cdecl win_sparkle_check_update_with_ui_and_install();
     @see win_sparkle_check_update_with_ui()
  */
 WIN_SPARKLE_API void __cdecl win_sparkle_check_update_without_ui();
+
+/**
+    Checks if an update is available and delegates all UI to the host app.
+
+    If an update is found, WinSparkle invokes the callback registered with
+    win_sparkle_set_host_update_available_callback() and does not show the
+    built-in update dialog. The host can then call win_sparkle_download_update()
+    and win_sparkle_install_downloaded_update().
+ */
+WIN_SPARKLE_API void __cdecl win_sparkle_check_update_with_host_ui();
+
+/**
+    Starts downloading the update from the most recent host UI update session.
+
+    Returns 1 if a download was started, 0 if no update is available for
+    downloading, and WINSPARKLE_RETURN_ERROR on unexpected errors.
+ */
+WIN_SPARKLE_API int __cdecl win_sparkle_download_update();
+
+/**
+    Launches the downloaded installer from the active host UI update session.
+
+    Returns 1 if the installer was launched, 0 if it could not be launched or
+    the application was not ready to shut down, and WINSPARKLE_RETURN_ERROR on
+    unexpected errors.
+ */
+WIN_SPARKLE_API int __cdecl win_sparkle_install_downloaded_update();
+
+/**
+    Skips the current host UI update version.
+ */
+WIN_SPARKLE_API void __cdecl win_sparkle_skip_current_update();
+
+/**
+    Postpones the current host UI update session.
+ */
+WIN_SPARKLE_API void __cdecl win_sparkle_postpone_current_update();
+
+/**
+    Cancels the active host UI download, if any.
+ */
+WIN_SPARKLE_API void __cdecl win_sparkle_cancel_update_download();
 
 //@}
 

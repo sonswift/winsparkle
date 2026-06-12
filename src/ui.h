@@ -66,7 +66,7 @@ public:
         (i.e. the user is manually checking for updates), "no updates found"
         message is shown. Otherwise, does nothing.
      */
-    static void NotifyNoUpdates(bool installAutomatically);
+    static void NotifyNoUpdates(bool installAutomatically, bool hostUI = false);
 
     /**
         Notifies the UI that there was an error retrieving updates.
@@ -75,14 +75,20 @@ public:
         (i.e. the user is manually checking for updates), "update error"
         message is shown. Otherwise, does nothing.
      */
-    static void NotifyUpdateError(ErrorCode err = Err_Generic);
+    static void NotifyUpdateError(ErrorCode err = Err_Generic,
+                                  bool hostUI = false,
+                                  const char* stage = NULL,
+                                  const char* message = NULL,
+                                  const char* url = NULL,
+                                  unsigned long win32Error = 0,
+                                  int httpStatus = 0);
 
     /**
         Notifies the UI that a new version is available.
 
         If the UI thread isn't running yet, it will be launched.
      */
-    static void NotifyUpdateAvailable(const Appcast& info, bool installAutomatically);
+    static void NotifyUpdateAvailable(const Appcast& info, bool installAutomatically, bool hostUI = false);
 
     /**
         Notifies the UI about download progress.
@@ -103,6 +109,31 @@ public:
         Shows the dialog asking user for permission to check for updates.
      */
     static void AskForPermission();
+
+    /**
+        Starts downloading the current update from a host-rendered UI session.
+     */
+    static bool DownloadHostUpdate();
+
+    /**
+        Installs the downloaded update from a host-rendered UI session.
+     */
+    static bool InstallHostUpdate();
+
+    /**
+        Skips the current host-rendered UI update.
+     */
+    static void SkipHostUpdate();
+
+    /**
+        Postpones the current host-rendered UI update.
+     */
+    static void PostponeHostUpdate();
+
+    /**
+        Cancels the active host-rendered UI download.
+     */
+    static void CancelHostDownload();
 
     /**
         Sets HINSTANCE of the DLL.

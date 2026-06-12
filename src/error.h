@@ -47,6 +47,17 @@ public:
         @param extraMsg  Extra message shown in front of the win32 error.
      */
     Win32Exception(const char *extraMsg = NULL);
+
+    /**
+        Returns the original GetLastError() value captured when the exception
+        was created.
+     */
+    unsigned long GetErrorCode() const { return m_error; }
+
+private:
+    Win32Exception(const char *extraMsg, unsigned long err);
+
+    unsigned long m_error;
 };
 
 /**

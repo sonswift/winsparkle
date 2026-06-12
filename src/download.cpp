@@ -48,6 +48,17 @@
 namespace winsparkle
 {
 
+DownloadException::DownloadException(const std::string& message,
+                                     const std::string& url,
+                                     unsigned long win32Error,
+                                     int httpStatus)
+    : std::runtime_error(message),
+      m_url(url),
+      m_win32Error(win32Error),
+      m_httpStatus(httpStatus)
+{
+}
+
 /*--------------------------------------------------------------------------*
                                 helpers
  *--------------------------------------------------------------------------*/
@@ -202,7 +213,7 @@ void DownloadFile(const std::string& url, IDownloadSink* sink, Thread* onThread,
     urlc.dwUrlPathLength = sizeof(url_path);
 
     if ( !InternetCrackUrlA(url.c_str(), 0, ICU_DECODE, &urlc) )
-        throw Win32Exception();
+        throw DownloadException("Failed to parse update URL.", url, GetLastError());
 
     InetHandle inet = InternetOpen
                       (
@@ -213,7 +224,7 @@ void DownloadFile(const std::string& url, IDownloadSink* sink, Thread* onThread,
                           INTERNET_FLAG_ASYNC // dwFlags
                       );
     if ( !inet )
-        throw Win32Exception();
+        throw DownloadException("Failed to initialize internet session.", url, GetLastError());
 
     DWORD dwOption = HTTP_PROTOCOL_FLAG_HTTP2;
     InternetSetOptionW(inet, INTERNET_OPTION_ENABLE_HTTP_PROTOCOL, &dwOption, sizeof(dwOption));
@@ -260,17 +271,19 @@ void DownloadFile(const std::string& url, IDownloadSink* sink, Thread* onThread,
     else
     {
         if (GetLastError() != ERROR_IO_PENDING)
-            throw Win32Exception();
+            throw DownloadException("Failed to open update URL.", url, GetLastError());
     }
 
     WaitUntilSignaledWithTerminationCheck(context.eventRequestComplete, onThread);
+    if (context.lastError != ERROR_SUCCESS)
+        throw DownloadException("Update request failed.", url, context.lastError);
 
     // Check returned status code - we need to detect 404 instead of
     // downloading the human-readable 404 page:
     DWORD statusCode;
     if ( GetHttpHeader(conn, HTTP_QUERY_STATUS_CODE, statusCode) && statusCode >= 400 )
     {
-        throw std::runtime_error("Update file not found on the server.");
+        throw DownloadException("Update request returned an HTTP error.", url, 0, static_cast<int>(statusCode));
     }
 
     // Get content length if possible:
@@ -343,7 +356,7 @@ void DownloadFile(const std::string& url, IDownloadSink* sink, Thread* onThread,
         if (!InternetReadFileEx(conn, &ibuf, IRF_ASYNC | IRF_NO_WAIT, NULL))
         {
             if (GetLastError() != ERROR_IO_PENDING)
-                throw Win32Exception();
+                throw DownloadException("Failed to read update data.", url, GetLastError());
 
             WaitUntilSignaledWithTerminationCheck(context.eventRequestComplete, onThread);
             continue;
@@ -352,7 +365,7 @@ void DownloadFile(const std::string& url, IDownloadSink* sink, Thread* onThread,
         if (ibuf.dwBufferLength == 0)
         {
             if (context.lastError != ERROR_SUCCESS)
-                throw Win32Exception();
+                throw DownloadException("Update download request failed.", url, context.lastError);
             else
                 break; // all of the file was downloaded
         }

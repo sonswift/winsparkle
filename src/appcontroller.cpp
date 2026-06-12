@@ -24,6 +24,7 @@
  */
 
 #include "appcontroller.h"
+#include "appcast.h"
 
 
 namespace winsparkle
@@ -41,6 +42,12 @@ win_sparkle_update_skipped_callback_t      ApplicationController::ms_cbUpdateSki
 win_sparkle_update_postponed_callback_t    ApplicationController::ms_cbUpdatePostponed = NULL;
 win_sparkle_update_dismissed_callback_t    ApplicationController::ms_cbUpdateDismissed = NULL;
 win_sparkle_user_run_installer_callback_t  ApplicationController::ms_cbUserRunInstaller = NULL;
+win_sparkle_host_update_available_callback_t ApplicationController::ms_cbHostUpdateAvailable = NULL;
+win_sparkle_host_no_update_callback_t        ApplicationController::ms_cbHostNoUpdate = NULL;
+win_sparkle_host_download_progress_callback_t ApplicationController::ms_cbHostDownloadProgress = NULL;
+win_sparkle_host_update_downloaded_callback_t ApplicationController::ms_cbHostUpdateDownloaded = NULL;
+win_sparkle_host_update_error_callback_t      ApplicationController::ms_cbHostUpdateError = NULL;
+win_sparkle_host_update_error_details_callback_t ApplicationController::ms_cbHostUpdateErrorDetails = NULL;
 
 bool ApplicationController::IsReadyToShutdown()
 {
@@ -162,6 +169,98 @@ int ApplicationController::UserRunInstallerCallback(const wchar_t* filePath)
         return false;
 
     return ms_cbUserRunInstaller(filePath);
+}
+
+bool ApplicationController::NotifyHostUpdateAvailable(const Appcast& appcast)
+{
+    {
+        CriticalSectionLocker lock(ms_csVars);
+        if (!ms_cbHostUpdateAvailable)
+            return false;
+
+        win_sparkle_update_info info = {};
+        info.struct_size = sizeof(info);
+        info.version = appcast.Version.c_str();
+        info.short_version = appcast.ShortVersionString.c_str();
+        info.title = appcast.Title.c_str();
+        info.description = appcast.Description.c_str();
+        info.release_notes_url = appcast.ReleaseNotesURL.c_str();
+        info.download_url = appcast.enclosure.DownloadURL.c_str();
+        info.web_browser_url = appcast.WebBrowserURL.c_str();
+        info.installer_arguments = appcast.enclosure.InstallerArguments.c_str();
+        info.critical_update = appcast.CriticalUpdate ? 1 : 0;
+
+        (*ms_cbHostUpdateAvailable)(&info);
+        return true;
+    }
+}
+
+bool ApplicationController::NotifyHostNoUpdate()
+{
+    {
+        CriticalSectionLocker lock(ms_csVars);
+        if (!ms_cbHostNoUpdate)
+            return false;
+
+        (*ms_cbHostNoUpdate)();
+        return true;
+    }
+}
+
+bool ApplicationController::NotifyHostDownloadProgress(unsigned long long downloaded, unsigned long long total)
+{
+    {
+        CriticalSectionLocker lock(ms_csVars);
+        if (!ms_cbHostDownloadProgress)
+            return false;
+
+        (*ms_cbHostDownloadProgress)(downloaded, total);
+        return true;
+    }
+}
+
+bool ApplicationController::NotifyHostUpdateDownloaded(const wchar_t* updateFile)
+{
+    {
+        CriticalSectionLocker lock(ms_csVars);
+        if (!ms_cbHostUpdateDownloaded)
+            return false;
+
+        (*ms_cbHostUpdateDownloaded)(updateFile);
+        return true;
+    }
+}
+
+bool ApplicationController::NotifyHostUpdateError(int errorCode,
+                                                 const char* stage,
+                                                 const char* message,
+                                                 const char* url,
+                                                 unsigned long win32Error,
+                                                 int httpStatus)
+{
+    {
+        CriticalSectionLocker lock(ms_csVars);
+        if (ms_cbHostUpdateErrorDetails)
+        {
+            win_sparkle_update_error_info info = {};
+            info.struct_size = sizeof(info);
+            info.error_code = errorCode;
+            info.stage = stage ? stage : "";
+            info.message = message ? message : "";
+            info.url = url ? url : "";
+            info.win32_error = win32Error;
+            info.http_status = httpStatus;
+
+            (*ms_cbHostUpdateErrorDetails)(&info);
+            return true;
+        }
+
+        if (!ms_cbHostUpdateError)
+            return false;
+
+        (*ms_cbHostUpdateError)(errorCode);
+        return true;
+    }
 }
 
 } // namespace winsparkle

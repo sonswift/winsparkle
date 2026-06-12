@@ -380,6 +380,60 @@ WIN_SPARKLE_API void __cdecl win_sparkle_set_update_dismissed_callback(win_spark
     CATCH_ALL_EXCEPTIONS
 }
 
+WIN_SPARKLE_API void __cdecl win_sparkle_set_host_update_available_callback(win_sparkle_host_update_available_callback_t callback)
+{
+    try
+    {
+        ApplicationController::SetHostUpdateAvailableCallback(callback);
+    }
+    CATCH_ALL_EXCEPTIONS
+}
+
+WIN_SPARKLE_API void __cdecl win_sparkle_set_host_no_update_callback(win_sparkle_host_no_update_callback_t callback)
+{
+    try
+    {
+        ApplicationController::SetHostNoUpdateCallback(callback);
+    }
+    CATCH_ALL_EXCEPTIONS
+}
+
+WIN_SPARKLE_API void __cdecl win_sparkle_set_host_download_progress_callback(win_sparkle_host_download_progress_callback_t callback)
+{
+    try
+    {
+        ApplicationController::SetHostDownloadProgressCallback(callback);
+    }
+    CATCH_ALL_EXCEPTIONS
+}
+
+WIN_SPARKLE_API void __cdecl win_sparkle_set_host_update_downloaded_callback(win_sparkle_host_update_downloaded_callback_t callback)
+{
+    try
+    {
+        ApplicationController::SetHostUpdateDownloadedCallback(callback);
+    }
+    CATCH_ALL_EXCEPTIONS
+}
+
+WIN_SPARKLE_API void __cdecl win_sparkle_set_host_update_error_callback(win_sparkle_host_update_error_callback_t callback)
+{
+    try
+    {
+        ApplicationController::SetHostUpdateErrorCallback(callback);
+    }
+    CATCH_ALL_EXCEPTIONS
+}
+
+WIN_SPARKLE_API void __cdecl win_sparkle_set_host_update_error_details_callback(win_sparkle_host_update_error_details_callback_t callback)
+{
+    try
+    {
+        ApplicationController::SetHostUpdateErrorDetailsCallback(callback);
+    }
+    CATCH_ALL_EXCEPTIONS
+}
+
 /*--------------------------------------------------------------------------*
                               Manual usage
  *--------------------------------------------------------------------------*/
@@ -420,6 +474,65 @@ WIN_SPARKLE_API void __cdecl win_sparkle_check_update_without_ui()
         // are available.
         UpdateChecker *check = new OneShotUpdateChecker();
         check->Start();
+    }
+    CATCH_ALL_EXCEPTIONS
+}
+
+WIN_SPARKLE_API void __cdecl win_sparkle_check_update_with_host_ui()
+{
+    try
+    {
+        UpdateChecker *check = new ManualHostUpdateChecker();
+        check->Start();
+    }
+    CATCH_ALL_EXCEPTIONS
+}
+
+WIN_SPARKLE_API int __cdecl win_sparkle_download_update()
+{
+    try
+    {
+        return UI::DownloadHostUpdate() ? 1 : 0;
+    }
+    CATCH_ALL_EXCEPTIONS
+
+    return WINSPARKLE_RETURN_ERROR;
+}
+
+WIN_SPARKLE_API int __cdecl win_sparkle_install_downloaded_update()
+{
+    try
+    {
+        return UI::InstallHostUpdate() ? 1 : 0;
+    }
+    CATCH_ALL_EXCEPTIONS
+
+    return WINSPARKLE_RETURN_ERROR;
+}
+
+WIN_SPARKLE_API void __cdecl win_sparkle_skip_current_update()
+{
+    try
+    {
+        UI::SkipHostUpdate();
+    }
+    CATCH_ALL_EXCEPTIONS
+}
+
+WIN_SPARKLE_API void __cdecl win_sparkle_postpone_current_update()
+{
+    try
+    {
+        UI::PostponeHostUpdate();
+    }
+    CATCH_ALL_EXCEPTIONS
+}
+
+WIN_SPARKLE_API void __cdecl win_sparkle_cancel_update_download()
+{
+    try
+    {
+        UI::CancelHostDownload();
     }
     CATCH_ALL_EXCEPTIONS
 }

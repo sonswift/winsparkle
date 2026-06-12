@@ -66,6 +66,9 @@ protected:
     /// Should we install the update or prompt the user for options first?
     virtual bool ShouldAutomaticallyInstall() const { return false; }
 
+    /// Should update UI be delegated to the host application?
+    virtual bool ShouldUseHostUI() const { return false; }
+
 protected:
     virtual void PerformUpdateCheck();
     virtual bool IsJoinable() const { return false; }
@@ -113,6 +116,19 @@ public:
 
 protected:
     virtual bool ShouldAutomaticallyInstall() const { return true; };
+};
+
+
+/**
+    Update checker used when the host application renders the update UI.
+ */
+class ManualHostUpdateChecker : public ManualUpdateChecker
+{
+public:
+    ManualHostUpdateChecker() : ManualUpdateChecker() {}
+
+protected:
+    virtual bool ShouldUseHostUI() const { return true; }
 };
 
 

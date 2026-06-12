@@ -171,15 +171,20 @@ void UpdateDownloader::Run()
     // no initialization to do, so signal readiness immediately
     SignalReady();
 
+    std::string stage = "create_temp_directory";
+    const std::string downloadURL = m_appcast.enclosure.DownloadURL;
+
     try
     {
       const std::wstring tmpdir = CreateUniqueTempDirectory();
       Settings::WriteConfigValue("UpdateTempDir", tmpdir);
 
+      stage = "download_update";
       UpdateDownloadSink sink(*this, tmpdir);
-      DownloadFile(m_appcast.enclosure.DownloadURL, &sink, this, Settings::GetHttpHeadersString());
+      DownloadFile(downloadURL, &sink, this, Settings::GetHttpHeadersString());
       sink.Close();
 
+      stage = "verify_signature";
       if (Settings::HasEdDSAPubKey())
       {
           SignatureVerifier::VerifyEdDSASignatureValid(sink.GetFilePath(), m_appcast.enclosure.EdDsaSignature);
@@ -197,15 +202,57 @@ void UpdateDownloader::Run()
 
       UI::NotifyUpdateDownloaded(sink.GetFilePath(), m_appcast);
     }
-    catch (BadSignatureException&)
+    catch (TerminateThreadException&)
     {
-        CleanLeftovers();  // remove potentially corrupted file
-        UI::NotifyUpdateError(Err_BadSignature);
         throw;
     }
-    catch ( ... )
+    catch (BadSignatureException& e)
     {
-        UI::NotifyUpdateError();
+        CleanLeftovers();  // remove potentially corrupted file
+        UI::NotifyUpdateError(Err_BadSignature,
+                              false,
+                              "verify_signature",
+                              e.what(),
+                              downloadURL.c_str());
+        throw;
+    }
+    catch (const DownloadException& e)
+    {
+        UI::NotifyUpdateError(Err_Generic,
+                              false,
+                              stage.c_str(),
+                              e.what(),
+                              e.GetURL().c_str(),
+                              e.GetWin32Error(),
+                              e.GetHttpStatus());
+        throw;
+    }
+    catch (const Win32Exception& e)
+    {
+        UI::NotifyUpdateError(Err_Generic,
+                              false,
+                              stage.c_str(),
+                              e.what(),
+                              downloadURL.c_str(),
+                              e.GetErrorCode());
+        throw;
+    }
+    catch (const std::exception& e)
+    {
+        UI::NotifyUpdateError(Err_Generic,
+                              false,
+                              stage.c_str(),
+                              e.what(),
+                              downloadURL.c_str());
+        throw;
+    }
+    catch (...)
+    {
+        UI::NotifyUpdateError(Err_Generic,
+                              false,
+                              stage.c_str(),
+                              "Unknown update download error.",
+                              downloadURL.c_str());
         throw;
     }
 }

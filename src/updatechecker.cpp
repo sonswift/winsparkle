@@ -220,9 +220,12 @@ UpdateChecker::UpdateChecker(): Thread("WinSparkle updates check")
 
 void UpdateChecker::PerformUpdateCheck()
 {
+    std::string stage = "check_appcast";
+    std::string url;
+
     try
     {
-        const std::string url = Settings::GetAppcastURL();
+        url = Settings::GetAppcastURL();
         if ( url.empty() )
             throw std::runtime_error("Appcast URL not specified.");
         CheckForInsecureURL(url, "appcast feed");
@@ -230,14 +233,17 @@ void UpdateChecker::PerformUpdateCheck()
         StringDownloadSink appcast_xml;
         DownloadFile(url, &appcast_xml, this, Settings::GetHttpHeadersString(), Download_BypassProxies);
 
+        stage = "parse_appcast";
         auto all = Appcast::Load(appcast_xml.data);
 
         if (all.empty())
         {
             // No applicable updates in the feed.
-            UI::NotifyNoUpdates(ShouldAutomaticallyInstall());
+            UI::NotifyNoUpdates(ShouldAutomaticallyInstall(), ShouldUseHostUI());
             return;
         }
+
+        stage = "select_update";
 
         // Sort by version number and pick the latest:
 		std::stable_sort
@@ -248,6 +254,7 @@ void UpdateChecker::PerformUpdateCheck()
 
         auto appcast = all.front();
 
+        stage = "validate_update";
         if (!appcast.ReleaseNotesURL.empty())
             CheckForInsecureURL(appcast.ReleaseNotesURL, "release notes");
         if (!appcast.enclosure.DownloadURL.empty())
@@ -262,22 +269,50 @@ void UpdateChecker::PerformUpdateCheck()
         if ( !appcast.IsValid() || CompareVersions(currentVersion, appcast.Version) >= 0 )
         {
             // The same or newer version is already installed.
-            UI::NotifyNoUpdates(ShouldAutomaticallyInstall());
+            UI::NotifyNoUpdates(ShouldAutomaticallyInstall(), ShouldUseHostUI());
             return;
         }
 
         // Check if the user opted to ignore this particular version.
         if ( ShouldSkipUpdate(appcast) )
         {
-            UI::NotifyNoUpdates(ShouldAutomaticallyInstall());
+            UI::NotifyNoUpdates(ShouldAutomaticallyInstall(), ShouldUseHostUI());
             return;
         }
 
-        UI::NotifyUpdateAvailable(appcast, ShouldAutomaticallyInstall());
+        UI::NotifyUpdateAvailable(appcast, ShouldAutomaticallyInstall(), ShouldUseHostUI());
     }
-    catch ( ... )
+    catch (TerminateThreadException&)
     {
-        UI::NotifyUpdateError();
+        throw;
+    }
+    catch (const DownloadException& e)
+    {
+        UI::NotifyUpdateError(Err_Generic,
+                              ShouldUseHostUI(),
+                              stage.c_str(),
+                              e.what(),
+                              e.GetURL().c_str(),
+                              e.GetWin32Error(),
+                              e.GetHttpStatus());
+        throw;
+    }
+    catch (const std::exception& e)
+    {
+        UI::NotifyUpdateError(Err_Generic,
+                              ShouldUseHostUI(),
+                              stage.c_str(),
+                              e.what(),
+                              url.c_str());
+        throw;
+    }
+    catch (...)
+    {
+        UI::NotifyUpdateError(Err_Generic,
+                              ShouldUseHostUI(),
+                              stage.c_str(),
+                              "Unknown update check error.",
+                              url.c_str());
         throw;
     }
 }

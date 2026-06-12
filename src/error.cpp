@@ -77,7 +77,13 @@ std::string GetWin32ErrorMessage(const char *extraMsg, DWORD err)
  *--------------------------------------------------------------------------*/
 
 Win32Exception::Win32Exception(const char *extraMsg)
-    : std::runtime_error(GetWin32ErrorMessage(extraMsg, GetLastError()))
+    : Win32Exception(extraMsg, GetLastError())
+{
+}
+
+Win32Exception::Win32Exception(const char *extraMsg, unsigned long err)
+    : std::runtime_error(GetWin32ErrorMessage(extraMsg, err)),
+      m_error(err)
 {
 }
 

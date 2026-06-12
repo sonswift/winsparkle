@@ -29,6 +29,7 @@
 #include "updatechecker.h"
 #include "updatedownloader.h"
 #include "appcontroller.h"
+#include "utils.h"
 
 #define wxNO_NET_LIB
 #define wxNO_XML_LIB
@@ -282,6 +283,104 @@ struct LayoutChangesGuard
 
     wxTopLevelWindow *m_win;
 };
+
+CriticalSection gs_hostUpdateCS;
+Appcast gs_hostAppcast;
+std::wstring gs_hostUpdateFile;
+std::string gs_hostInstallerArguments;
+UpdateDownloader *gs_hostDownloader = NULL;
+bool gs_hostActive = false;
+bool gs_hostDownloading = false;
+
+bool RunInstallerFile(const std::wstring& updateFile, const std::string& installerArguments)
+{
+    switch (ApplicationController::UserRunInstallerCallback(updateFile.c_str()))
+    {
+        case 0:
+            // carry on with default handling
+            break;
+        case 1:
+            // user callback handled installation
+            return true;
+        case WINSPARKLE_RETURN_ERROR:
+        default:
+            // some error occured (either runtime or unexpected return value)
+            return false;
+    }
+
+    std::wstring wArgs;
+
+    SHELLEXECUTEINFO sei;
+    ::ZeroMemory(&sei, sizeof(SHELLEXECUTEINFO));
+    sei.cbSize = sizeof(SHELLEXECUTEINFO);
+    sei.lpFile = updateFile.c_str();
+    sei.nShow = SW_SHOWDEFAULT;
+    sei.fMask = SEE_MASK_FLAG_NO_UI;    // We display our own dialog box on error
+
+    if (! installerArguments.empty())
+    {
+        wArgs = AnsiToWide(installerArguments);
+        sei.lpParameters = wArgs.c_str();
+    }
+
+    return ::ShellExecuteEx(&sei) ? true : false;
+}
+
+bool IsHostUpdateActive()
+{
+    CriticalSectionLocker lock(gs_hostUpdateCS);
+    return gs_hostActive;
+}
+
+void StoreHostUpdate(const Appcast& appcast)
+{
+    CriticalSectionLocker lock(gs_hostUpdateCS);
+    gs_hostAppcast = appcast;
+    gs_hostUpdateFile.clear();
+    gs_hostInstallerArguments.clear();
+    gs_hostActive = true;
+    gs_hostDownloading = false;
+}
+
+void ClearHostUpdate()
+{
+    CriticalSectionLocker lock(gs_hostUpdateCS);
+    gs_hostAppcast = Appcast();
+    gs_hostUpdateFile.clear();
+    gs_hostInstallerArguments.clear();
+    gs_hostActive = false;
+    gs_hostDownloading = false;
+}
+
+void StoreHostUpdateDownloaded(const std::wstring& updateFile, const Appcast& appcast)
+{
+    CriticalSectionLocker lock(gs_hostUpdateCS);
+    gs_hostUpdateFile = updateFile;
+    gs_hostInstallerArguments = appcast.enclosure.InstallerArguments;
+    gs_hostDownloading = false;
+}
+
+UpdateDownloader *TakeHostDownloader()
+{
+    CriticalSectionLocker lock(gs_hostUpdateCS);
+    UpdateDownloader *downloader = gs_hostDownloader;
+    gs_hostDownloader = NULL;
+    gs_hostDownloading = false;
+    return downloader;
+}
+
+void StopHostDownloader(bool cleanLeftovers)
+{
+    UpdateDownloader *downloader = TakeHostDownloader();
+    if (downloader)
+    {
+        downloader->TerminateAndJoin();
+        delete downloader;
+    }
+
+    if (cleanLeftovers)
+        UpdateDownloader::CleanLeftovers();
+}
 
 class DllTranslationsLoader : public wxResourceTranslationsLoader
 {
@@ -706,36 +805,7 @@ void UpdateDialog::OnRunInstaller(wxCommandEvent&)
 
 bool UpdateDialog::RunInstaller()
 {
-    switch (ApplicationController::UserRunInstallerCallback(m_updateFile.t_str()))
-    {
-        case 0:
-            // carry on with default handling
-            break;
-        case 1:
-            // user callback handled installation
-            return true;
-        case WINSPARKLE_RETURN_ERROR:
-        default:
-            // some error occured (either runtime or unexpected return value)
-            return false;
-    }
-
-    std::wstring wArgs;
-
-    SHELLEXECUTEINFO sei;
-    ::ZeroMemory(&sei, sizeof(SHELLEXECUTEINFO));
-    sei.cbSize = sizeof(SHELLEXECUTEINFO);
-    sei.lpFile = m_updateFile.t_str();
-    sei.nShow = SW_SHOWDEFAULT;
-    sei.fMask = SEE_MASK_FLAG_NO_UI;	// We display our own dialog box on error
-
-    if (! m_installerArguments.empty())
-    {
-        wArgs = AnsiToWide(m_installerArguments);
-        sei.lpParameters = wArgs.c_str();
-    }
-
-    return ::ShellExecuteEx(&sei) ? true : false;
+    return RunInstallerFile(m_updateFile.t_str(), m_installerArguments);
 }
 
 void UpdateDialog::SetMessage(const wxString& text, int width)
@@ -1499,9 +1569,12 @@ void UI::ShutDown()
 
 
 /*static*/
-void UI::NotifyNoUpdates(bool installAutomatically)
+void UI::NotifyNoUpdates(bool installAutomatically, bool hostUI)
 {
     ApplicationController::NotifyUpdateNotFound();
+
+    if (hostUI && ApplicationController::NotifyHostNoUpdate())
+        return;
 
     UIThreadAccess uit;
 
@@ -1515,9 +1588,18 @@ void UI::NotifyNoUpdates(bool installAutomatically)
 
 
 /*static*/
-void UI::NotifyUpdateAvailable(const Appcast& info, bool installAutomatically)
+void UI::NotifyUpdateAvailable(const Appcast& info, bool installAutomatically, bool hostUI)
 {
     ApplicationController::NotifyUpdateFound();
+
+    if (hostUI)
+    {
+        StoreHostUpdate(info);
+        if (ApplicationController::NotifyHostUpdateAvailable(info))
+            return;
+
+        ClearHostUpdate();
+    }
 
     UIThreadAccess uit;
     EventPayload payload;
@@ -1530,6 +1612,10 @@ void UI::NotifyUpdateAvailable(const Appcast& info, bool installAutomatically)
 /*static*/
 void UI::NotifyDownloadProgress(size_t downloaded, size_t total)
 {
+    if (IsHostUpdateActive() &&
+        ApplicationController::NotifyHostDownloadProgress(downloaded, total))
+        return;
+
     UIThreadAccess uit;
     EventPayload payload;
     payload.sizeDownloaded = downloaded;
@@ -1541,6 +1627,13 @@ void UI::NotifyDownloadProgress(size_t downloaded, size_t total)
 /*static*/
 void UI::NotifyUpdateDownloaded(const std::wstring& updateFile, const Appcast &appcast)
 {
+    if (IsHostUpdateActive())
+    {
+        StoreHostUpdateDownloaded(updateFile, appcast);
+        if (ApplicationController::NotifyHostUpdateDownloaded(updateFile.c_str()))
+            return;
+    }
+
     UIThreadAccess uit;
     EventPayload payload;
     payload.updateFile = updateFile;
@@ -1550,9 +1643,24 @@ void UI::NotifyUpdateDownloaded(const std::wstring& updateFile, const Appcast &a
 
 
 /*static*/
-void UI::NotifyUpdateError(ErrorCode err)
+void UI::NotifyUpdateError(ErrorCode err,
+                           bool hostUI,
+                           const char* stage,
+                           const char* message,
+                           const char* url,
+                           unsigned long win32Error,
+                           int httpStatus)
 {
     ApplicationController::NotifyUpdateError();
+
+    if ((hostUI || IsHostUpdateActive()) &&
+        ApplicationController::NotifyHostUpdateError(static_cast<int>(err),
+                                                     stage,
+                                                     message,
+                                                     url,
+                                                     win32Error,
+                                                     httpStatus))
+        return;
 
     UIThreadAccess uit;
 
@@ -1578,6 +1686,119 @@ void UI::AskForPermission()
 {
     UIThreadAccess uit;
     uit.App().SendMsg(MSG_ASK_FOR_PERMISSION);
+}
+
+
+/*static*/
+bool UI::DownloadHostUpdate()
+{
+    Appcast appcast;
+    UpdateDownloader *downloader = NULL;
+
+    {
+        CriticalSectionLocker lock(gs_hostUpdateCS);
+        if (!gs_hostActive || !gs_hostAppcast.IsValid() || !gs_hostAppcast.HasDownload() || gs_hostDownloader)
+            return false;
+
+        appcast = gs_hostAppcast;
+        gs_hostUpdateFile.clear();
+        gs_hostInstallerArguments.clear();
+        gs_hostDownloading = true;
+        downloader = new UpdateDownloader(appcast);
+        gs_hostDownloader = downloader;
+
+        try
+        {
+            downloader->Start();
+            return true;
+        }
+        catch (...)
+        {
+            gs_hostDownloader = NULL;
+            gs_hostDownloading = false;
+            delete downloader;
+            UpdateDownloader::CleanLeftovers();
+            throw;
+        }
+    }
+}
+
+
+/*static*/
+bool UI::InstallHostUpdate()
+{
+    std::wstring updateFile;
+    std::string installerArguments;
+
+    {
+        CriticalSectionLocker lock(gs_hostUpdateCS);
+        if (!gs_hostActive || gs_hostUpdateFile.empty())
+            return false;
+
+        updateFile = gs_hostUpdateFile;
+        installerArguments = gs_hostInstallerArguments;
+    }
+
+    UpdateDownloader *downloader = TakeHostDownloader();
+    if (downloader)
+    {
+        downloader->Join();
+        delete downloader;
+    }
+
+    if (!ApplicationController::IsReadyToShutdown())
+        return false;
+
+    if (!RunInstallerFile(updateFile, installerArguments))
+        return false;
+
+    ClearHostUpdate();
+    ApplicationController::RequestShutdown();
+    return true;
+}
+
+
+/*static*/
+void UI::SkipHostUpdate()
+{
+    std::string version;
+
+    {
+        CriticalSectionLocker lock(gs_hostUpdateCS);
+        if (gs_hostActive && gs_hostAppcast.IsValid())
+            version = gs_hostAppcast.Version;
+    }
+
+    StopHostDownloader(true);
+
+    if (!version.empty())
+        Settings::WriteConfigValue("SkipThisVersion", version);
+
+    ClearHostUpdate();
+    ApplicationController::NotifyUpdateSkipped();
+    ApplicationController::NotifyUpdateCancelled();
+    ApplicationController::NotifyUpdateDismissed();
+}
+
+
+/*static*/
+void UI::PostponeHostUpdate()
+{
+    StopHostDownloader(true);
+    ClearHostUpdate();
+    ApplicationController::NotifyUpdatePostponed();
+    ApplicationController::NotifyUpdateCancelled();
+    ApplicationController::NotifyUpdateDismissed();
+}
+
+
+/*static*/
+void UI::CancelHostDownload()
+{
+    StopHostDownloader(true);
+    ClearHostUpdate();
+    ApplicationController::NotifyUpdateCancelled();
+    ApplicationController::NotifyUpdateDismissed();
 }
 
 } // namespace winsparkle

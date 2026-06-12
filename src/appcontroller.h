@@ -33,6 +33,8 @@
 namespace winsparkle
 {
 
+struct Appcast;
+
 /**
     Interface to controlling the hosting application.
  */
@@ -80,6 +82,26 @@ public:
 
     /// Run the user installer callback if one is set.
     static int UserRunInstallerCallback(const wchar_t*);
+
+    /// Notify the host UI that an update is available.
+    static bool NotifyHostUpdateAvailable(const Appcast& appcast);
+
+    /// Notify the host UI that no update was found.
+    static bool NotifyHostNoUpdate();
+
+    /// Notify the host UI about download progress.
+    static bool NotifyHostDownloadProgress(unsigned long long downloaded, unsigned long long total);
+
+    /// Notify the host UI that an update was downloaded.
+    static bool NotifyHostUpdateDownloaded(const wchar_t* updateFile);
+
+    /// Notify the host UI that an update error occurred.
+    static bool NotifyHostUpdateError(int errorCode,
+                                      const char* stage = NULL,
+                                      const char* message = NULL,
+                                      const char* url = NULL,
+                                      unsigned long win32Error = 0,
+                                      int httpStatus = 0);
 
     //@}
 
@@ -157,6 +179,42 @@ public:
         ms_cbUserRunInstaller = callback;
     }
 
+    static void SetHostUpdateAvailableCallback(win_sparkle_host_update_available_callback_t callback)
+    {
+        CriticalSectionLocker lock(ms_csVars);
+        ms_cbHostUpdateAvailable = callback;
+    }
+
+    static void SetHostNoUpdateCallback(win_sparkle_host_no_update_callback_t callback)
+    {
+        CriticalSectionLocker lock(ms_csVars);
+        ms_cbHostNoUpdate = callback;
+    }
+
+    static void SetHostDownloadProgressCallback(win_sparkle_host_download_progress_callback_t callback)
+    {
+        CriticalSectionLocker lock(ms_csVars);
+        ms_cbHostDownloadProgress = callback;
+    }
+
+    static void SetHostUpdateDownloadedCallback(win_sparkle_host_update_downloaded_callback_t callback)
+    {
+        CriticalSectionLocker lock(ms_csVars);
+        ms_cbHostUpdateDownloaded = callback;
+    }
+
+    static void SetHostUpdateErrorCallback(win_sparkle_host_update_error_callback_t callback)
+    {
+        CriticalSectionLocker lock(ms_csVars);
+        ms_cbHostUpdateError = callback;
+    }
+
+    static void SetHostUpdateErrorDetailsCallback(win_sparkle_host_update_error_details_callback_t callback)
+    {
+        CriticalSectionLocker lock(ms_csVars);
+        ms_cbHostUpdateErrorDetails = callback;
+    }
+
     //@}
 
 private:
@@ -175,6 +233,12 @@ private:
     static win_sparkle_update_postponed_callback_t    ms_cbUpdatePostponed;
     static win_sparkle_update_dismissed_callback_t    ms_cbUpdateDismissed;
     static win_sparkle_user_run_installer_callback_t  ms_cbUserRunInstaller;
+    static win_sparkle_host_update_available_callback_t ms_cbHostUpdateAvailable;
+    static win_sparkle_host_no_update_callback_t        ms_cbHostNoUpdate;
+    static win_sparkle_host_download_progress_callback_t ms_cbHostDownloadProgress;
+    static win_sparkle_host_update_downloaded_callback_t ms_cbHostUpdateDownloaded;
+    static win_sparkle_host_update_error_callback_t      ms_cbHostUpdateError;
+    static win_sparkle_host_update_error_details_callback_t ms_cbHostUpdateErrorDetails;
     
 };
 
